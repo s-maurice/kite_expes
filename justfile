@@ -4,6 +4,8 @@ user := `whoami`
 rep := '1'
 ssd_id := '84:00.0'
 
+mod motiv "motivation/motiv.just"
+
 help:
     just --list
 
@@ -21,8 +23,7 @@ ssh COMMAND="":
 linux_vm nb_cpu="1" size_mem="16384":
     #!/usr/bin/env bash
     let "taskset_cores = {{nb_cpu}}-1"
-    #sudo taskset -c 0-$taskset_cores qemu-system-x86_64 \
-    sudo taskset -c 8-72 qemu-system-x86_64 \
+    sudo taskset -c 0-$taskset_cores qemu-system-x86_64 \
         -cpu host \
         -smp {{nb_cpu}} \
         -enable-kvm \

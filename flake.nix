@@ -69,9 +69,14 @@
                         gdb
                         qemu_full
                         just
+                        python3Packages.pandas 
+                        python3Packages.matplotlib 
+                        python3Packages.seaborn 
+                        python3Packages.polars
 
                         libaio
                         niwa-pkgs.driverctl
+			postgresql
 
                         # leanstore
                         gflags
