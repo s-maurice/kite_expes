@@ -60,6 +60,19 @@
             };
 
             devShells = {
+                duckdb-cache = pkgs.mkShell {
+                    name = "duckdb-cache-devshell";
+                    packages = with pkgs; [
+                        # DuckDB build tools (mirrors duckdb/flake.nix)
+                        cmake ninja pkg-config gcc clang python3 ccache clang-tools git
+
+                        # S3 backend
+                        seaweedfs
+
+                        just
+                    ];
+                };
+
                 default = (pkgs.mkShell
                 {
                     name = "benchmark-devshell";

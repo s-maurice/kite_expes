@@ -1,0 +1,7 @@
+[submodule "duckdb_cache_experements/duckdb"]
+	path = duckdb_cache_experements/duckdb
+	url = https://github.com/Meandres/duckdb.git
+	branch = flake
+[submodule "duckdb_cache_experements/duck-read-cache-fs"]
+	path = duckdb_cache_experements/duck-read-cache-fs
+	url = https://github.com/s-maurice/duck-read-cache-fs.git
