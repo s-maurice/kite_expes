@@ -6,6 +6,8 @@ ssd_id := '84:00.0'
 
 mod motiv "motivation/motiv.just"
 
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
 duckdb_dir := proot / "duckdb_cache_experements/duckdb"
 duckdb_build_dir := proot / "duckdb_cache_experements/build"
 cache_fs_dir := proot / "duckdb_cache_experements/duck-read-cache-fs"
@@ -88,7 +90,7 @@ seaweed-start:
 # Generate TPC-H and upload to SeaweedFS S3 (seaweed-start must be running)
 duckdb-tpch-load sf="50" bucket="duckdb-test": duckdb-build
     #!/usr/bin/env bash
-    {{duckdb_build_dir}}/duckdb <<'SQL'
+    {{duckdb_build_dir}}/duckdb <<SQL
         LOAD httpfs;
         SET s3_endpoint='localhost:{{seaweed_s3_port}}';
         SET s3_use_ssl=false;
@@ -106,7 +108,7 @@ duckdb-tpch-load sf="50" bucket="duckdb-test": duckdb-build
         COPY supplier   TO 's3://{{bucket}}/tpch/supplier.parquet';
         COPY nation     TO 's3://{{bucket}}/tpch/nation.parquet';
         COPY region     TO 's3://{{bucket}}/tpch/region.parquet';
-SQL
+    SQL
 
 cache_fs_ext := cache_fs_dir / "build/reldebug/extension/cache_httpfs/cache_httpfs.duckdb_extension"
 
@@ -117,19 +119,17 @@ duckdb-bucket-size bucket="duckdb-test": duckdb-build
     #!/usr/bin/env bash
     set -e
     mkdir -p {{bench_state_dir}}
-    bytes=$({{duckdb_build_dir}}/duckdb -noheader -list <<SQL
-        LOAD httpfs;
-        SET s3_endpoint='localhost:{{seaweed_s3_port}}';
-        SET s3_use_ssl=false;
-        SET s3_url_style='path';
-        SET s3_access_key_id='any';
-        SET s3_secret_access_key='any';
-        SELECT sum(total_compressed_size)
-        FROM parquet_metadata('s3://{{bucket}}/tpch/*.parquet');
-SQL
-    )
-    echo "$bytes" > {{bench_state_dir}}/bucket_size_bytes
-    echo "Bucket size: ${bytes} bytes ($(python3 -c "print(f'{${bytes}/1024**3:.2f}')") GB)"
+    {{duckdb_build_dir}}/duckdb -noheader -list -c "\
+        LOAD httpfs; \
+        SET s3_endpoint='localhost:{{seaweed_s3_port}}'; \
+        SET s3_use_ssl=false; \
+        SET s3_url_style='path'; \
+        SET s3_access_key_id='any'; \
+        SET s3_secret_access_key='any'; \
+        SELECT sum(total_compressed_size) FROM parquet_metadata('s3://{{bucket}}/tpch/*.parquet');" \
+        > {{bench_state_dir}}/bucket_size_bytes
+    bytes=$(cat {{bench_state_dir}}/bucket_size_bytes)
+    echo "Bucket size: ${bytes} bytes"
 
 
 # Sweep cache size (0-100% of bucket) x block size.
@@ -137,71 +137,90 @@ SQL
 # cache_block_sizes is a space-separated list of block sizes in bytes.
 duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576": duckdb-build cache-fs-build
     #!/usr/bin/env bash
-    set -e
-    bucket_bytes=$(cat {{bench_state_dir}}/bucket_size_bytes)
-    out="{{proot}}/results/tpch_sweep_$(date +%Y%m%d_%H%M%S).csv"
-    mkdir -p {{proot}}/results
-    echo "block_size,cache_pct,cache_blocks,cache_bytes,elapsed_sec,cache_type,cache_hit_count,cache_miss_count,cache_miss_by_in_use,bytes_to_read,bytes_to_cache,bytes_from_hits,bytes_from_misses" > "$out"
-    echo "Sweeping cache 0-100% of bucket (${bucket_bytes}B) x block sizes [{{cache_block_sizes}}] → $out"
+
+    bucket_bytes=$(<{{bench_state_dir}}/bucket_size_bytes)
+    results_dir="{{proot}}/results"
+    mkdir -p "$results_dir"
+
+    out="$results_dir/tpch_sweep_$(date +%Y%m%d_%H%M%S).csv"
+
+    echo "block_size,cache_pct,cache_blocks,cache_bytes,t_start,t_end,cache_type,cache_hit_count,cache_miss_count,cache_miss_by_in_use,bytes_to_read,bytes_to_cache,bytes_from_hits,bytes_from_misses" > "$out"
+
+    echo "Sweeping cache 0-100% of bucket (${bucket_bytes}B) x block sizes [{{cache_block_sizes}}]"
+    echo "→ $out"
 
     for block_size in {{cache_block_sizes}}; do
-    for cache_pct in 0 10 20 30 40 50 60 70 80 90 100; do
+      for cache_pct in 0 10 20 30 40 50 60 70 80 90 100; do
+
         cache_bytes=$(( bucket_bytes * cache_pct / 100 ))
         cache_blocks=$(( (cache_bytes + block_size - 1) / block_size ))
-        echo -n "  block=${block_size}B cache=${cache_pct}% (${cache_blocks} blocks) ... "
-        if [ "${cache_pct}" -eq 0 ]; then
-            cache_config="SET cache_httpfs_type='noop';"
+
+        printf "  block=%sB cache=%s%% (%s blocks) ... " "$block_size" "$cache_pct" "$cache_blocks"
+
+        if (( cache_pct == 0 )); then
+          cache_config="SET cache_httpfs_type='noop';"
         else
-            cache_config="SET cache_httpfs_type='in_mem'; SET cache_httpfs_cache_block_size=${block_size}; SET cache_httpfs_max_in_mem_cache_block_count=${cache_blocks};"
+          cache_config="
+            SET cache_httpfs_type='in_mem';
+            SET cache_httpfs_cache_block_size=${block_size};
+            SET cache_httpfs_max_in_mem_cache_block_count=${cache_blocks};
+            "
         fi
+
         tmp_access=$(mktemp)
-        start=$(date +%s%N)
-        {{duckdb_build_dir}}/duckdb <<SQL
-            LOAD '{{cache_fs_ext}}';
-            ${cache_config}
-            SET cache_httpfs_profile_type='temp';
-            SET s3_endpoint='localhost:{{seaweed_s3_port}}';
-            SET s3_use_ssl=false;
-            SET s3_url_style='path';
-            SET s3_access_key_id='any';
-            SET s3_secret_access_key='any';
-            CREATE VIEW lineitem AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/lineitem.parquet');
-            CREATE VIEW orders   AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/orders.parquet');
-            CREATE VIEW customer AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/customer.parquet');
-            CREATE VIEW part     AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/part.parquet');
-            CREATE VIEW partsupp AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/partsupp.parquet');
-            CREATE VIEW supplier AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/supplier.parquet');
-            CREATE VIEW nation   AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/nation.parquet');
-            CREATE VIEW region   AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/region.parquet');
-            LOAD tpch;
-            PRAGMA tpch(1);  PRAGMA tpch(2);  PRAGMA tpch(3);  PRAGMA tpch(4);
-            PRAGMA tpch(5);  PRAGMA tpch(6);  PRAGMA tpch(7);  PRAGMA tpch(8);
-            PRAGMA tpch(9);  PRAGMA tpch(10); PRAGMA tpch(11); PRAGMA tpch(12);
-            PRAGMA tpch(13); PRAGMA tpch(14); PRAGMA tpch(15); PRAGMA tpch(16);
-            PRAGMA tpch(17); PRAGMA tpch(18); PRAGMA tpch(19); PRAGMA tpch(20);
-            PRAGMA tpch(21); PRAGMA tpch(22);
-            COPY (
-                SELECT
-                    cache_type,
-                    cache_hit_count,
-                    cache_miss_count,
-                    "cache_miss_by_in_use (file handle cache)" AS cache_miss_by_in_use,
-                    "number_bytes_to_read (data cache)"        AS bytes_to_read,
-                    "number_bytes_to_cache (data cache)"       AS bytes_to_cache,
-                    "bytes_read_from_hits (data cache)"        AS bytes_from_hits,
-                    "bytes_read_from_misses (data cache)"      AS bytes_from_misses
-                FROM cache_httpfs_cache_access_info_query()
-            ) TO '${tmp_access}' (FORMAT CSV, HEADER false);
-SQL
-        elapsed_ns=$(( $(date +%s%N) - start ))
-        elapsed_sec=$(python3 -c "print(f'{${elapsed_ns}/1e9:.2f}')")
-        echo "${elapsed_sec}s"
+
+        t_start=$(date +%s.%N)
+
+        {{duckdb_build_dir}}/duckdb <<EOF
+        LOAD '{{cache_fs_ext}}';
+        ${cache_config}
+        SET cache_httpfs_profile_type='temp';
+
+        SET s3_endpoint='localhost:{{seaweed_s3_port}}';
+        SET s3_use_ssl=false;
+        SET s3_url_style='path';
+        SET s3_access_key_id='any';
+        SET s3_secret_access_key='any';
+
+        CREATE VIEW lineitem AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/lineitem.parquet');
+        CREATE VIEW orders   AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/orders.parquet');
+        CREATE VIEW customer AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/customer.parquet');
+        CREATE VIEW part     AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/part.parquet');
+        CREATE VIEW partsupp AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/partsupp.parquet');
+        CREATE VIEW supplier AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/supplier.parquet');
+        CREATE VIEW nation   AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/nation.parquet');
+        CREATE VIEW region   AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/region.parquet');
+
+        LOAD tpch;
+
+        PRAGMA tpch(1);  PRAGMA tpch(2);  PRAGMA tpch(3);  PRAGMA tpch(4);
+        PRAGMA tpch(5);  PRAGMA tpch(6);  PRAGMA tpch(7);  PRAGMA tpch(8);
+        PRAGMA tpch(9);  PRAGMA tpch(10); PRAGMA tpch(11); PRAGMA tpch(12);
+        PRAGMA tpch(13); PRAGMA tpch(14); PRAGMA tpch(15); PRAGMA tpch(16);
+        PRAGMA tpch(17); PRAGMA tpch(18); PRAGMA tpch(19); PRAGMA tpch(20);
+        PRAGMA tpch(21); PRAGMA tpch(22);
+
+        COPY (
+          SELECT * FROM cache_httpfs_cache_access_info_query()
+        ) TO '${tmp_access}' (FORMAT CSV, HEADER false);
+        EOF
+
+        t_end=$(date +%s.%N)
+
+        echo "done"
+
+        # Robust file read (no pipe, no subshell)
         while IFS= read -r line; do
-            echo "${block_size},${cache_pct},${cache_blocks},${cache_bytes},${elapsed_sec},${line}" >> "$out"
+          printf "%s,%s,%s,%s,%s,%s,%s\n" \
+            "$block_size" "$cache_pct" "$cache_blocks" "$cache_bytes" \
+            "$t_start" "$t_end" "$line" >> "$out"
         done < "$tmp_access"
+
         rm -f "$tmp_access"
+
+      done
     done
-    done
+
     echo "Done → $out"
 
 seaweed-stop:
