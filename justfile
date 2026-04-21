@@ -77,7 +77,7 @@ duckdb-shell: duckdb-build
 seaweed-start:
     #!/usr/bin/env bash
     mkdir -p {{seaweed_data_dir}}
-    weed server \
+    nohup weed server \
         -dir={{seaweed_data_dir}} \
         -master.port={{seaweed_master_port}} \
         -volume.port={{seaweed_volume_port}} \
@@ -86,6 +86,14 @@ seaweed-start:
         -s3.port={{seaweed_s3_port}} &
     echo "SeaweedFS started (S3 on port {{seaweed_s3_port}})"
     echo "Endpoint: http://localhost:{{seaweed_s3_port}}"
+
+seaweed-stop:
+    if [ -f {{seaweed_data_dir}}/seaweed.pid ]; then
+        kill $(cat {{seaweed_data_dir}}/seaweed.pid) || true
+        rm -f {{seaweed_data_dir}}/seaweed.pid
+    else
+        pkill -f "weed server" || true
+    fi
 
 # Generate TPC-H and upload to SeaweedFS S3 (seaweed-start must be running)
 duckdb-tpch-load sf="50" bucket="duckdb-test": duckdb-build
@@ -222,9 +230,6 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
     done
 
     echo "Done → $out"
-
-seaweed-stop:
-    pkill -f "weed server" || true
 
 # Write a small parquet file via DuckDB httpfs — creates the bucket if absent
 duckdb-s3-init bucket="duckdb-test": duckdb-build
