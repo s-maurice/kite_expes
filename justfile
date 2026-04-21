@@ -106,7 +106,6 @@ duckdb-tpch-load sf="50" bucket="duckdb-test": duckdb-build
         SET s3_url_style='path';
         SET s3_access_key_id='any';
         SET s3_secret_access_key='any';
-        INSTALL tpch;
         LOAD tpch;
         CALL dbgen(sf={{sf}});
         COPY lineitem   TO 's3://{{bucket}}/tpch/lineitem.parquet';
