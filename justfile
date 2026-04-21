@@ -145,6 +145,7 @@ duckdb-bucket-size bucket="duckdb-test": duckdb-build
 # cache_block_sizes is a space-separated list of block sizes in bytes.
 duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576": duckdb-build cache-fs-build
     #!/usr/bin/env bash
+    set -euo pipefail
 
     bucket_bytes=$(<{{bench_state_dir}}/bucket_size_bytes)
     results_dir="{{proot}}/results"
@@ -210,7 +211,7 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
         COPY (
           SELECT * FROM cache_httpfs_cache_access_info_query()
         ) TO '${tmp_access}' (FORMAT CSV, HEADER false);"
-        printf '%s\n' "$sql" | {{duckdb_build_dir}}/duckdb -unsigned
+        printf '%s\n' "$sql" | {{duckdb_build_dir}}/duckdb -unsigned -batch -no-progress
 
         t_end=$(date +%s.%N)
 
