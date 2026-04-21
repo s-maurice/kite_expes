@@ -179,8 +179,7 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
 
         t_start=$(date +%s.%N)
 
-        {{duckdb_build_dir}}/duckdb <<EOF
-        LOAD '{{cache_fs_ext}}';
+        sql="LOAD '{{cache_fs_ext}}';
         ${cache_config}
         SET cache_httpfs_profile_type='temp';
 
@@ -210,8 +209,8 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
 
         COPY (
           SELECT * FROM cache_httpfs_cache_access_info_query()
-        ) TO '${tmp_access}' (FORMAT CSV, HEADER false);
-        EOF
+        ) TO '${tmp_access}' (FORMAT CSV, HEADER false);"
+        printf '%s\n' "$sql" | {{duckdb_build_dir}}/duckdb
 
         t_end=$(date +%s.%N)
 
