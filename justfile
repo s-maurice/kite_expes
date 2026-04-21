@@ -88,12 +88,13 @@ seaweed-start:
     echo "Endpoint: http://localhost:{{seaweed_s3_port}}"
 
 seaweed-stop:
-    if [ -f {{seaweed_data_dir}}/seaweed.pid ]; then
-        kill $(cat {{seaweed_data_dir}}/seaweed.pid) || true
-        rm -f {{seaweed_data_dir}}/seaweed.pid
-    else
-        pkill -f "weed server" || true
-    fi
+	#!/usr/bin/env bash
+	if [ -f {{seaweed_data_dir}}/seaweed.pid ]; then
+		kill $(cat {{seaweed_data_dir}}/seaweed.pid) || true
+		rm -f {{seaweed_data_dir}}/seaweed.pid
+	else
+		pkill -f "weed server" || true
+	fi
 
 # Generate TPC-H and upload to SeaweedFS S3 (seaweed-start must be running)
 duckdb-tpch-load sf="50" bucket="duckdb-test": duckdb-build
