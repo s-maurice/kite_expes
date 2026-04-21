@@ -182,6 +182,7 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
 
         sql="LOAD '{{cache_fs_ext}}';
         ${cache_config}
+        SET enable_progress_bar=false;
         SET cache_httpfs_profile_type='temp';
 
         SET s3_endpoint='localhost:{{seaweed_s3_port}}';
