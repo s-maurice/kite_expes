@@ -81,7 +81,6 @@ seaweed-start:
         -dir={{seaweed_data_dir}} \
         -master.port={{seaweed_master_port}} \
         -volume.port={{seaweed_volume_port}} \
-        -volume.max_concurrent_requests=1024 \
         -filer \
         -s3 \
         -s3.port={{seaweed_s3_port}} &
@@ -184,6 +183,8 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
         sql="LOAD '{{cache_fs_ext}}';
         ${cache_config}
         SET enable_progress_bar=false;
+        SET http_retries=5;
+        SET http_retry_wait_ms=200;
         SET cache_httpfs_profile_type='temp';
 
         SET s3_endpoint='localhost:{{seaweed_s3_port}}';
