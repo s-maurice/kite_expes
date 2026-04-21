@@ -81,6 +81,7 @@ seaweed-start:
         -dir={{seaweed_data_dir}} \
         -master.port={{seaweed_master_port}} \
         -volume.port={{seaweed_volume_port}} \
+        -volume.max_concurrent_requests=1024 \
         -filer \
         -s3 \
         -s3.port={{seaweed_s3_port}} &
