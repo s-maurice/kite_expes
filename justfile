@@ -69,7 +69,7 @@ cache-fs-build:
     #!/usr/bin/env bash
     set -e
     cd {{cache_fs_dir}}
-    make reldebug DUCKDB_SRCDIR={{duckdb_dir}}
+    CMAKE_BUILD_PARALLEL_LEVEL=$(nproc) make reldebug DUCKDB_SRCDIR={{duckdb_dir}}
 
 duckdb-shell: duckdb-build
     {{duckdb_build_dir}}/duckdb
