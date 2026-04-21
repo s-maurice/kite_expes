@@ -145,7 +145,7 @@ duckdb-bucket-size bucket="duckdb-test": duckdb-build
 # cache_block_sizes is a space-separated list of block sizes in bytes.
 duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576": duckdb-build cache-fs-build
     #!/usr/bin/env bash
-    set -euo pipefail
+    set -euxo pipefail
 
     bucket_bytes=$(<{{bench_state_dir}}/bucket_size_bytes)
     results_dir="{{proot}}/results"
@@ -159,7 +159,7 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
     echo "→ $out"
 
     for block_size in {{cache_block_sizes}}; do
-      for cache_pct in 0 10 20 30 40 50 60 70 80 90 100; do
+      for cache_pct in 0 20 40 60 80 100; do
 
         cache_bytes=$(( bucket_bytes * cache_pct / 100 ))
         cache_blocks=$(( (cache_bytes + block_size - 1) / block_size ))
