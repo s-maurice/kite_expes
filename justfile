@@ -146,6 +146,7 @@ duckdb-bucket-size bucket="duckdb-test": duckdb-build
 duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576": duckdb-build cache-fs-build
     #!/usr/bin/env bash
     set -euxo pipefail
+    ulimit -n 65536
 
     bucket_bytes=$(<{{bench_state_dir}}/bucket_size_bytes)
     results_dir="{{proot}}/results"
@@ -180,8 +181,11 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
 
         t_start=$(date +%s.%N)
 
+        threads=$(( $(nproc) / 3 ))
+
         sql="LOAD '{{cache_fs_ext}}';
         ${cache_config}
+        SET threads=${threads};
         SET enable_progress_bar=false;
         SET http_retries=5;
         SET http_retry_wait_ms=200;
@@ -235,15 +239,15 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
     echo "Done → $out"
 
 # Write a small parquet file via DuckDB httpfs — creates the bucket if absent
-duckdb-s3-init bucket="duckdb-test": duckdb-build
-    {{duckdb_build_dir}}/duckdb -c "\
-        LOAD httpfs; \
-        SET s3_endpoint='localhost:{{seaweed_s3_port}}'; \
-        SET s3_use_ssl=false; \
-        SET s3_url_style='path'; \
-        SET s3_access_key_id='any'; \
-        SET s3_secret_access_key='any'; \
-        COPY (SELECT 1 AS init) TO 's3://{{bucket}}/init.parquet';"
+# duckdb-s3-init bucket="duckdb-test": duckdb-build
+#     {{duckdb_build_dir}}/duckdb -c "\
+#         LOAD httpfs; \
+#         SET s3_endpoint='localhost:{{seaweed_s3_port}}'; \
+#         SET s3_use_ssl=false; \
+#         SET s3_url_style='path'; \
+#         SET s3_access_key_id='any'; \
+#         SET s3_secret_access_key='any'; \
+#         COPY (SELECT 1 AS init) TO 's3://{{bucket}}/init.parquet';"
 
 # --- vm ---
 
