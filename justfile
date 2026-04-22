@@ -249,9 +249,6 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
 #         SET s3_secret_access_key='any'; \
 #         COPY (SELECT 1 AS init) TO 's3://{{bucket}}/init.parquet';"
 
-vm-kernel-version:
-    just ssh "uname -r"
-
 # --- vm ---
 
 linux-image-init:
