@@ -35,7 +35,7 @@ run_vmcache_motiv_tlb size_mem="204800" ram0_size_gb="128" datasize="512" runfor
         wait $VM_PID 2>/dev/null || true
     done
 
-run_vmcache_thread_sweep size_mem="204800" ram0_size_gb="128" datasize="512" runfor="30" batch="":
+run_vmcache_thread_sweep size_mem="204800" ram0_size_gb="128" datasize="512" runfor="10" batch="":
     #!/usr/bin/env bash
     set -x
     set -e

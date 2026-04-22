@@ -20,6 +20,9 @@ seaweed_volume_port := "8080"
 help:
     just --list
 
+poweroff-vm:
+    just ssh "poweroff" || true
+
 ssh COMMAND="":
     @ ssh \
     -i {{proot}}/nix/keyfile \
