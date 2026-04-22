@@ -28,6 +28,7 @@ ssh COMMAND="":
     -o IdentityAgent=/dev/null \
     -o LogLevel=ERROR \
     -F /dev/null \
+    -T \
     -p {{qemu_ssh_port}} \
     root@localhost -- "{{COMMAND}}"
 
