@@ -46,26 +46,27 @@ run_vmcache_thread_sweep size_mem="204800" ram0_size_gb="128" datasize="512" run
     batch_env=""
     if [ -n "{{batch}}" ]; then batch_env="BATCH={{batch}}"; fi
 
+    just linux_vm 192 {{size_mem}} &
+    VM_PID=$!
+
+    until just ssh "echo VM_READY" 2>/dev/null | grep -q 'VM_READY'; do
+        sleep 2
+    done
+
+    let "ram0_size_kb = {{ram0_size_gb}} * 1024 * 1024"
+    just ssh "modprobe brd rd_nr=1 rd_size=$ram0_size_kb"
+
+    let "phys_gb = {{ram0_size_gb}} / 8"
+
     for thread in 1 2 4 8 12 16 24 32 48 64 96 128 160 192
     do
-        nohup just linux_vm $thread {{size_mem}} </dev/null >/dev/null 2>&1 &
-        VM_PID=$!
-
-        until just ssh "echo VM_READY" | grep -q 'VM_READY'; do
-            sleep 2
-        done
-
-        let "ram0_size_kb = {{ram0_size_gb}} * 1024 * 1024"
-        just ssh "modprobe brd rd_nr=1 rd_size=$ram0_size_kb"
-
-        let "phys_gb = {{ram0_size_gb}} / 8"
         just ssh "BLOCK=/dev/ram0 VIRTGB={{ram0_size_gb}} PHYSGB=$phys_gb THREADS=$thread EXMAP=1 DATASIZE={{datasize}} RUNFOR={{runfor}} $batch_env bpftrace -e 'BEGIN { @run_start = nsecs; } kprobe:flush_tlb_multi, kprobe:native_flush_tlb_local { @start[tid] = nsecs; } kretprobe:flush_tlb_multi, kretprobe:native_flush_tlb_local /@start[tid]/ { \\\$rs = @run_start; \\\$sec = (nsecs - \\\$rs) / 1000000000; @tlb_time_ns_per_sec[\\\$sec] += (nsecs - @start[tid]); delete(@start[tid]); }' -c 'time vmcache'" > /tmp/bpf_raw.out 2>&1 || true
 
         awk -v threads=$thread -F'[][]' '{ split($3, a, ": "); if ($1 == "@tlb_time_ns_per_sec") { t=$2+0; ms[t]=a[2]+0; if(t>max_t) max_t=t; } } END { sum_ns=0; cnt=0; for(t=max_t-10; t<=max_t-1; t++) { if(t in ms) { sum_ns+=ms[t]; cnt++; } } if(cnt>0) printf "%d,%.4f\n", threads, sum_ns / (threads * cnt * 1e9) * 100; else print threads ",0"; }' /tmp/bpf_raw.out >> {{result_dir}}/vmcache_thread_sweep.csv
-
-        just ssh "poweroff" || true
-        wait $VM_PID 2>/dev/null || true
     done
+
+    just ssh "poweroff" || true
+    wait $VM_PID 2>/dev/null || true
 
 run_vmcache_motiv_in_mem size_mem="80" datasize="5e8" runfor="10":
     #!/usr/bin/env bash
