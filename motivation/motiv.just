@@ -46,7 +46,7 @@ run_vmcache_thread_sweep size_mem="204800" ram0_size_gb="128" datasize="512" run
     batch_env=""
     if [ -n "{{batch}}" ]; then batch_env="BATCH={{batch}}"; fi
 
-    just linux_vm 192 {{size_mem}} &
+    just linux_vm 127 {{size_mem}} &
     VM_PID=$!
 
     until just ssh "echo VM_READY" 2>/dev/null | grep -q 'VM_READY'; do
@@ -58,7 +58,7 @@ run_vmcache_thread_sweep size_mem="204800" ram0_size_gb="128" datasize="512" run
 
     let "phys_gb = {{ram0_size_gb}} / 8"
 
-    for thread in 1 2 4 8 12 16 24 32 48 64 96 128 160 192
+    for thread in 1 2 4 8 12 16 24 32 48 64 96 127
     do
         just ssh "BLOCK=/dev/ram0 VIRTGB={{ram0_size_gb}} PHYSGB=$phys_gb THREADS=$thread EXMAP=1 DATASIZE={{datasize}} RUNFOR={{runfor}} $batch_env bpftrace -e 'BEGIN { @run_start = nsecs; } kprobe:flush_tlb_multi, kprobe:native_flush_tlb_local { @start[tid] = nsecs; } kretprobe:flush_tlb_multi, kretprobe:native_flush_tlb_local /@start[tid]/ { \\\$rs = @run_start; \\\$sec = (nsecs - \\\$rs) / 1000000000; @tlb_time_ns_per_sec[\\\$sec] += (nsecs - @start[tid]); delete(@start[tid]); }' -c 'time vmcache'" > /tmp/bpf_raw.out 2>&1 || true
 
