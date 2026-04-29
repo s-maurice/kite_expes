@@ -5,3 +5,6 @@
 [submodule "duckdb_cache_experements/duck-read-cache-fs"]
 	path = duckdb_cache_experements/duck-read-cache-fs
 	url = https://github.com/s-maurice/duck-read-cache-fs.git
+[submodule "vmcache_exprs/vmcache"]
+	path = vmcache_exprs/vmcache
+	url = git@github.com:viktorleis/vmcache.git
