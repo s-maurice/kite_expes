@@ -5,17 +5,18 @@ rep := '1'
 ssd_id := '84:00.0'
 
 mod motiv "motivation/motiv.just"
+mod vmcache "vmcache_exprs/vmcache.just"
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 duckdb_dir := proot / "duckdb_cache_experements/duckdb"
 duckdb_build_dir := proot / "duckdb_cache_experements/build"
 cache_fs_dir := proot / "duckdb_cache_experements/duck-read-cache-fs"
-seaweed_data_dir := proot / "duckdb_cache_experements/.seaweedfs"
+minio_data_dir := proot / "duckdb_cache_experements/.minio"
 bench_state_dir := proot / "duckdb_cache_experements/.bench_state"
-seaweed_s3_port := "8333"
-seaweed_master_port := "9333"
-seaweed_volume_port := "8080"
+minio_port := "9000"
+minio_access_key := "minioadmin"
+minio_secret_key := "minioadmin"
 
 help:
     just --list
@@ -34,6 +35,34 @@ ssh COMMAND="":
     -T \
     -p {{qemu_ssh_port}} \
     root@localhost -- "{{COMMAND}}"
+
+linux_vm_numa size_mem="204800":
+    #!/usr/bin/env bash
+    let "half_mem = {{size_mem}} / 2"
+    sudo taskset -c 0-127 qemu-system-x86_64 \
+        -cpu host \
+        -smp 128,sockets=2,cores=64,threads=1 \
+        -enable-kvm \
+        -m {{size_mem}} \
+        -machine q35,accel=kvm,kernel-irqchip=split \
+        -device intel-iommu,intremap=on,device-iotlb=on,caching-mode=on \
+        -object memory-backend-ram,id=ram0,size=${half_mem}M,host-nodes=0,policy=bind \
+        -object memory-backend-ram,id=ram1,size=${half_mem}M,host-nodes=1,policy=bind \
+        -numa node,nodeid=0,cpus=0,cpus=2,cpus=4,cpus=6,cpus=8,cpus=10,cpus=12,cpus=14,cpus=16,cpus=18,cpus=20,cpus=22,cpus=24,cpus=26,cpus=28,cpus=30,cpus=32,cpus=34,cpus=36,cpus=38,cpus=40,cpus=42,cpus=44,cpus=46,cpus=48,cpus=50,cpus=52,cpus=54,cpus=56,cpus=58,cpus=60,cpus=62,cpus=64,cpus=66,cpus=68,cpus=70,cpus=72,cpus=74,cpus=76,cpus=78,cpus=80,cpus=82,cpus=84,cpus=86,cpus=88,cpus=90,cpus=92,cpus=94,cpus=96,cpus=98,cpus=100,cpus=102,cpus=104,cpus=106,cpus=108,cpus=110,cpus=112,cpus=114,cpus=116,cpus=118,cpus=120,cpus=122,cpus=124,cpus=126,memdev=ram0 \
+        -numa node,nodeid=1,cpus=1,cpus=3,cpus=5,cpus=7,cpus=9,cpus=11,cpus=13,cpus=15,cpus=17,cpus=19,cpus=21,cpus=23,cpus=25,cpus=27,cpus=29,cpus=31,cpus=33,cpus=35,cpus=37,cpus=39,cpus=41,cpus=43,cpus=45,cpus=47,cpus=49,cpus=51,cpus=53,cpus=55,cpus=57,cpus=59,cpus=61,cpus=63,cpus=65,cpus=67,cpus=69,cpus=71,cpus=73,cpus=75,cpus=77,cpus=79,cpus=81,cpus=83,cpus=85,cpus=87,cpus=89,cpus=91,cpus=93,cpus=95,cpus=97,cpus=99,cpus=101,cpus=103,cpus=105,cpus=107,cpus=109,cpus=111,cpus=113,cpus=115,cpus=117,cpus=119,cpus=121,cpus=123,cpus=125,cpus=127,memdev=ram1 \
+        -numa dist,src=0,dst=1,val=21 \
+        -numa dist,src=1,dst=0,val=21 \
+        -device virtio-serial \
+        -fsdev local,id=home,path={{proot}},security_model=none \
+        -device virtio-9p-pci,fsdev=home,mount_tag=home,disable-modern=on,disable-legacy=off \
+        -fsdev local,id=scratch,path=/scratch/{{user}},security_model=none \
+        -device virtio-9p-pci,fsdev=scratch,mount_tag=scratch,disable-modern=on,disable-legacy=off \
+        -fsdev local,id=nixstore,path=/nix/store,security_model=none \
+        -device virtio-9p-pci,fsdev=nixstore,mount_tag=nixstore,disable-modern=on,disable-legacy=off \
+        -drive file={{proot}}/VMs/linux-image.qcow2 \
+        -net nic,netdev=user.0,model=virtio \
+        -netdev user,id=user.0,hostfwd=tcp:127.0.0.1:{{qemu_ssh_port}}-:22 \
+        -nographic
 
 linux_vm nb_cpu="1" size_mem="16384":
     #!/usr/bin/env bash
@@ -78,38 +107,35 @@ cache-fs-build:
 duckdb-shell: duckdb-build
     {{duckdb_build_dir}}/duckdb
 
-seaweed-start:
+minio-start bucket="duckdb-test":
     #!/usr/bin/env bash
-    mkdir -p {{seaweed_data_dir}}
-    nohup weed server \
-        -dir={{seaweed_data_dir}} \
-        -master.port={{seaweed_master_port}} \
-        -volume.port={{seaweed_volume_port}} \
-        -filer \
-        -s3 \
-        -s3.port={{seaweed_s3_port}} &
-    echo "SeaweedFS started (S3 on port {{seaweed_s3_port}})"
-    echo "Endpoint: http://localhost:{{seaweed_s3_port}}"
+    set -euo pipefail
+    mkdir -p {{minio_data_dir}}
+    MINIO_ROOT_USER={{minio_access_key}} MINIO_ROOT_PASSWORD={{minio_secret_key}} \
+        nohup minio server {{minio_data_dir}} --address :{{minio_port}} \
+        > {{minio_data_dir}}/minio.log 2>&1 &
+    echo $! > {{minio_data_dir}}/minio.pid
+    echo "MinIO started (S3 on port {{minio_port}})"
+    mc alias set local http://localhost:{{minio_port}} {{minio_access_key}} {{minio_secret_key}}
+    until mc ls local/ >/dev/null 2>&1; do sleep 0.5; done
+    mc mb --ignore-existing local/{{bucket}}
+    echo "Bucket '{{bucket}}' ready at http://localhost:{{minio_port}}"
 
-seaweed-stop:
-	#!/usr/bin/env bash
-	if [ -f {{seaweed_data_dir}}/seaweed.pid ]; then
-		kill $(cat {{seaweed_data_dir}}/seaweed.pid) || true
-		rm -f {{seaweed_data_dir}}/seaweed.pid
-	else
-		pkill -f "weed server" || true
-	fi
+minio-stop:
+    #!/usr/bin/env bash
+    pkill -x minio || true
+    rm -f {{minio_data_dir}}/minio.pid
 
-# Generate TPC-H and upload to SeaweedFS S3 (seaweed-start must be running)
+# Generate TPC-H and upload to MinIO S3 (minio-start must be running)
 duckdb-tpch-load sf="50" bucket="duckdb-test": duckdb-build
     #!/usr/bin/env bash
     {{duckdb_build_dir}}/duckdb <<SQL
         LOAD httpfs;
-        SET s3_endpoint='localhost:{{seaweed_s3_port}}';
+        SET s3_endpoint='localhost:{{minio_port}}';
         SET s3_use_ssl=false;
         SET s3_url_style='path';
-        SET s3_access_key_id='any';
-        SET s3_secret_access_key='any';
+        SET s3_access_key_id='{{minio_access_key}}';
+        SET s3_secret_access_key='{{minio_secret_key}}';
         LOAD tpch;
         CALL dbgen(sf={{sf}});
         COPY lineitem   TO 's3://{{bucket}}/tpch/lineitem.parquet';
@@ -133,11 +159,11 @@ duckdb-bucket-size bucket="duckdb-test": duckdb-build
     mkdir -p {{bench_state_dir}}
     {{duckdb_build_dir}}/duckdb -noheader -list -c "\
         LOAD httpfs; \
-        SET s3_endpoint='localhost:{{seaweed_s3_port}}'; \
+        SET s3_endpoint='localhost:{{minio_port}}'; \
         SET s3_use_ssl=false; \
         SET s3_url_style='path'; \
-        SET s3_access_key_id='any'; \
-        SET s3_secret_access_key='any'; \
+        SET s3_access_key_id='{{minio_access_key}}'; \
+        SET s3_secret_access_key='{{minio_secret_key}}'; \
         SELECT sum(total_compressed_size) FROM parquet_metadata('s3://{{bucket}}/tpch/*.parquet');" \
         > {{bench_state_dir}}/bucket_size_bytes
     bytes=$(cat {{bench_state_dir}}/bucket_size_bytes)
@@ -195,11 +221,11 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
         SET http_retry_wait_ms=200;
         SET cache_httpfs_profile_type='temp';
 
-        SET s3_endpoint='localhost:{{seaweed_s3_port}}';
+        SET s3_endpoint='localhost:{{minio_port}}';
         SET s3_use_ssl=false;
         SET s3_url_style='path';
-        SET s3_access_key_id='any';
-        SET s3_secret_access_key='any';
+        SET s3_access_key_id='{{minio_access_key}}';
+        SET s3_secret_access_key='{{minio_secret_key}}';
 
         CREATE VIEW lineitem AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/lineitem.parquet');
         CREATE VIEW orders   AS SELECT * FROM read_parquet('s3://{{bucket}}/tpch/orders.parquet');
@@ -246,7 +272,7 @@ duckdb-sweep bucket="duckdb-test" cache_block_sizes="65536 262144 524288 1048576
 # duckdb-s3-init bucket="duckdb-test": duckdb-build
 #     {{duckdb_build_dir}}/duckdb -c "\
 #         LOAD httpfs; \
-#         SET s3_endpoint='localhost:{{seaweed_s3_port}}'; \
+#         SET s3_endpoint='localhost:{{minio_port}}'; \
 #         SET s3_use_ssl=false; \
 #         SET s3_url_style='path'; \
 #         SET s3_access_key_id='any'; \

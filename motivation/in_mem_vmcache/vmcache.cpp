@@ -61,7 +61,7 @@ void *allocHuge(size_t size) {
 // use when lock is not free
 void yield(u64 counter) { _mm_pause(); }
 
-struct PageState {
+struct alignas(32) PageState {
   atomic<u64> stateAndVersion;
 
   static const u64 Unlocked = 0;

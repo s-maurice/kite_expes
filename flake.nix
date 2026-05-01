@@ -67,7 +67,7 @@
                         cmake ninja pkg-config gcc clang python3 ccache clang-tools git openssl curl
 
                         # S3 backend
-                        seaweedfs
+                        minio minio-client
 
                         just
                     ];

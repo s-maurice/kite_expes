@@ -95,6 +95,7 @@ in
     resize
     pkgs.spdk
     pkgs.bpftrace
+    pkgs.gdb
   ] ++ extraEnvPackages;
 
   boot.kernelPackages = kernelPackages;
